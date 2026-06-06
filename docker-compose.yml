@@ -1,0 +1,132 @@
+version: '3.8'
+
+networks:
+  consensus_net:
+    driver: bridge
+
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:latest
+    container_name: toxiproxy
+    ports:
+      - "8474:8474"   
+      - "8001:8001"   
+      - "8002:8002"   
+      - "8003:8003"   
+      - "8004:8004"   
+      - "8005:8005"   
+    networks:
+      - consensus_net  
+
+  init-toxiproxy:
+    image: curlimages/curl:latest
+    container_name: init_toxiproxy
+    depends_on:
+      - toxiproxy
+    networks:
+      - consensus_net
+    entrypoint: >
+      /bin/sh -c "
+        echo 'Waiting for Toxiproxy...';   
+        until curl -s http://toxiproxy:8474/version > /dev/null; do sleep 1; done;
+        echo 'Toxiproxy is active. Creating proxy mapping tunnels...';
+        curl -X POST http://toxiproxy:8474/proxies -H 'Content-Type: application/json' -d '{\"name\": \"node1_proxy\", \"listen\": \"0.0.0.0:8001\", \"upstream\": \"node1:5000\", \"enabled\": true}';
+        curl -X POST http://toxiproxy:8474/proxies -H 'Content-Type: application/json' -d '{\"name\": \"node2_proxy\", \"listen\": \"0.0.0.0:8002\", \"upstream\": \"node2:5000\", \"enabled\": true}';
+        curl -X POST http://toxiproxy:8474/proxies -H 'Content-Type: application/json' -d '{\"name\": \"node3_proxy\", \"listen\": \"0.0.0.0:8003\", \"upstream\": \"node3:5000\", \"enabled\": true}';
+        curl -X POST http://toxiproxy:8474/proxies -H 'Content-Type: application/json' -d '{\"name\": \"node4_proxy\", \"listen\": \"0.0.0.0:8004\", \"upstream\": \"node4:5000\", \"enabled\": true}';
+        curl -X POST http://toxiproxy:8474/proxies -H 'Content-Type: application/json' -d '{\"name\": \"node5_proxy\", \"listen\": \"0.0.0.0:8005\", \"upstream\": \"node5:5000\", \"enabled\": true}';
+        echo 'Proxy tunnels established.';
+      "  
+
+  node1:
+    build: .
+    container_name: node1
+    volumes:
+      - shared_auth:/auth
+      - node1_data:/data
+    environment:
+      - CONSENSUS_MODE=A
+    command: ["python", "node.py", "node1"]
+    depends_on:
+      - init-toxiproxy
+    networks:
+      - consensus_net
+
+  node2:
+    build: .
+    container_name: node2
+    volumes:
+      - shared_auth:/auth
+      - node2_data:/data
+    environment:
+      - CONSENSUS_MODE=A
+    command: ["python", "node.py", "node2"]
+    depends_on:
+      - init-toxiproxy
+    networks:
+      - consensus_net
+
+  node3:
+    build: .
+    container_name: node3
+    volumes:
+      - shared_auth:/auth
+      - node3_data:/data
+    environment:
+      - CONSENSUS_MODE=A
+    command: ["python", "node.py", "node3"]
+    depends_on:
+      - init-toxiproxy 
+    networks:
+      - consensus_net
+
+  node4:
+    build: .
+    container_name: node4
+    volumes:
+      - shared_auth:/auth
+      - node4_data:/data
+    environment:
+      - CONSENSUS_MODE=A
+    command: ["python", "node.py", "node4"]
+    depends_on:
+      - init-toxiproxy
+    networks:
+      - consensus_net
+
+  node5:
+    build: .
+    container_name: node5
+    volumes:
+      - shared_auth:/auth
+      - node5_data:/data
+    environment:
+      - CONSENSUS_MODE=A
+    command: ["python", "adversary.py", "node5"]
+    depends_on:
+      - init-toxiproxy
+    networks:
+      - consensus_net
+
+  client_simulator:
+    build: .
+    container_name: client_simulator
+    volumes:
+      - shared_auth:/auth
+    command: ["python", "client.py"]
+    depends_on:
+      - node1
+      - node2
+      - node3
+      - node4
+      - node5
+    networks:
+      - consensus_net
+
+volumes:
+  shared_auth:
+  node1_data:
+  node2_data:
+  node3_data:
+  node4_data:
+  node5_data:
