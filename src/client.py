@@ -1,60 +1,27 @@
-import asyncio
+import socket
 import json
-import logging
+import time
 import sys
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [CLIENT] %(message)s")
-
-class ConsensusClient:
-    def __init__(self, target_nodes: list):
-        self.target_nodes = target_nodes     
-
-    async def submit_transaction(self, tx: str, mode: str):
-        mode_payload = {
-            "type": "MODE_CHANGE",
-            "mode": mode
-        }                
-        for node_addr in self.target_nodes:
-            try:
-                ip, port = node_addr.split(":")
-                reader, writer = await asyncio.open_connection(ip, int(port))
-                writer.write((json.dumps(mode_payload) + "\n").encode())                 
-                await writer.drain()
-                writer.close()
-                await writer.wait_closed()
-            except Exception:
-                pass        
-        success = False        
-        for node_addr in self.target_nodes:
-            try:
-                ip, port = node_addr.split(":")
-                logging.info(f"Connecting to node at {node_addr} to submit transaction: {tx}")
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(ip, int(port)), timeout=1.0
-                )                                
-                proposal_payload = {
-                    "type": "TX_SUBMIT",
-                    "val": tx                
-                }                                
-                writer.write((json.dumps(proposal_payload) + "\n").encode())
-                await writer.drain()
-                writer.close()
-                await writer.wait_closed()                
-                success = True
-                break
-            except Exception as e:
-                logging.warning(f"Failed to connect to node {node_addr}: {e}. Trying next...")                        
-        if success:
-            logging.info("Transaction proposal submitted successfully.")
-        else:
-            logging.error("Failed to submit transaction: quorum target unreachable.")
-
-async def main():
-    nodes = ["toxiproxy:8001", "toxiproxy:8002", "toxiproxy:8003", "toxiproxy:8004", "toxiproxy:8005"]
-    client = ConsensusClient(nodes)        
-    await client.submit_transaction("Tx_A1_LinearizableLedger", "A")
-    await asyncio.sleep(2)
-    await client.submit_transaction("Tx_B1_ByzantineResistantProof", "B")
+def submit_transaction(tx_val):
+    payload = {"type": "TX_SUBMIT", "val": tx_val}
+    ports = [8001, 8002, 8003, 8004, 8005]
+    
+    for port in ports:
+        try:
+            print(f"[{port}] Attempting submission of transaction: {tx_val}")
+            s = socket.create_connection(("toxiproxy", port), timeout=1.0)
+            s.sendall((json.dumps(payload) + "\n").encode('utf-8'))
+            s.close()
+            # Give the consensus engine a brief moment to process before returning
+            time.sleep(0.5)
+        except Exception:
+            # Port might be disabled by Toxiproxy, skip silently
+            continue
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if len(sys.argv) > 1:
+        submit_transaction(sys.argv[1])
+    else:
+        # Default scenario pipelines matching chaos execution expectations
+        submit_transaction("Tx_A1_LinearizableLedger")
